@@ -9,6 +9,11 @@ import (
 	"net/http"
 )
 
+// apiVersion is the Graph API version used for all WhatsApp Cloud API
+// calls. Meta sunsets versions roughly two years after release, so this
+// is kept in one place to make future bumps a single-line change.
+const apiVersion = "v21.0"
+
 type Client struct {
 	Token         string
 	PhoneNumberID string
@@ -37,7 +42,7 @@ type sendText struct {
 // SendText sends a plain text WhatsApp message to the given phone number
 // (format: country code + number, no "+", e.g. "62812xxxxxxx").
 func (c *Client) SendText(to, body string) error {
-	url := fmt.Sprintf("https://graph.facebook.com/v19.0/%s/messages", c.PhoneNumberID)
+	url := fmt.Sprintf("https://graph.facebook.com/%s/%s/messages", apiVersion, c.PhoneNumberID)
 
 	reqBody := sendTextRequest{
 		MessagingProduct: "whatsapp",
@@ -75,7 +80,7 @@ func (c *Client) SendText(to, body string) error {
 // UploadMedia uploads a file to WhatsApp's media endpoint and returns a
 // media ID, which can then be passed to SendDocument.
 func (c *Client) UploadMedia(filename string, data []byte, mimeType string) (string, error) {
-	url := fmt.Sprintf("https://graph.facebook.com/v19.0/%s/media", c.PhoneNumberID)
+	url := fmt.Sprintf("https://graph.facebook.com/%s/%s/media", apiVersion, c.PhoneNumberID)
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -132,7 +137,7 @@ func (c *Client) UploadMedia(filename string, data []byte, mimeType string) (str
 // the Excel export is generated and can be sent via a document message
 // using the returned media ID from UploadMedia (implement alongside).
 func (c *Client) SendDocument(to, mediaID, filename string) error {
-	url := fmt.Sprintf("https://graph.facebook.com/v19.0/%s/messages", c.PhoneNumberID)
+	url := fmt.Sprintf("https://graph.facebook.com/%s/%s/messages", apiVersion, c.PhoneNumberID)
 
 	reqBody := map[string]any{
 		"messaging_product": "whatsapp",
