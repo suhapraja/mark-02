@@ -24,6 +24,10 @@ type CreateBookingInput struct {
 	CustomerName  string
 	CustomerPhone string
 	Destination   string
+	Pemesan       string
+	PickupPoint   string
+	Partner       string
+	Notes         string
 	Start         time.Time
 	End           time.Time
 }
@@ -60,6 +64,10 @@ func (s *BookingService) CreateBooking(in CreateBookingInput) (*models.Order, er
 		PickupDatetime:  in.Start,
 		ReturnDatetime:  in.End,
 		DestinationCity: in.Destination,
+		Pemesan:         in.Pemesan,
+		PickupPoint:     in.PickupPoint,
+		Partner:         in.Partner,
+		Notes:           in.Notes,
 		Status:          models.OrderActive,
 		CreatedAt:       time.Now().In(parser.JakartaLocation),
 		LastEditedAt:    time.Now().In(parser.JakartaLocation),

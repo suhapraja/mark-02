@@ -24,4 +24,12 @@ type Order struct {
 	Status          OrderStatus `gorm:"type:varchar(20);not null;default:active" json:"status"`
 	CreatedAt       time.Time   `json:"created_at"`
 	LastEditedAt    time.Time   `json:"last_edited_at"`
+
+	// Optional fields mirroring the columns of the spreadsheet this bot
+	// replaces, so the Excel export matches what the business already
+	// reads. All are optional — a booking without them still works.
+	Pemesan     string `json:"pemesan"`      // booking agent, e.g. "Ria DX"
+	PickupPoint string `json:"pickup_point"` // "Jptan", e.g. "Soetta", "Home"
+	Partner     string `json:"partner"`      // "Rekanan", set when the car is subcontracted
+	Notes       string `json:"notes"`        // "Keterangan", free text
 }

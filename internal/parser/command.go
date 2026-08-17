@@ -59,7 +59,12 @@ type Command struct {
 	CarQuery      string
 	DriverQuery   string
 	CustomerName  string
+	CustomerPhone string
 	Destination   string
+	Pemesan       string // booking agent
+	PickupPoint   string // "Jptan"
+	Partner       string // "Rekanan"
+	Notes         string // "Keterangan"
 
 	// cancel / edit
 	OrderID   uint
@@ -231,41 +236,71 @@ func parseBooking(text string) (Command, error) {
 	body := strings.TrimSpace(stripPrefixCI(text, "booking"))
 	parts := splitAndTrim(body, ",")
 
-	// Expected: [car, driver, datetime range, "customer X", "tujuan Y" (optional)]
+	// First three are positional: car, driver, datetime range. Everything
+	// after is keyword-tagged and order-independent, so the optional
+	// spreadsheet fields can be added without a rigid argument order.
 	if len(parts) < 4 {
 		return Command{}, fmt.Errorf(
 			"format booking tidak lengkap, gunakan contoh:\n" +
 				"booking Avanza B1234, Budi, 20 Agustus 08:00 - 22 Agustus 17:00, customer Yusuf, tujuan Bandung")
 	}
 
-	carQuery := parts[0]
-	driverQuery := parts[1]
-
 	start, end, err := ParseDateTimeRange(parts[2])
 	if err != nil {
 		return Command{}, err
 	}
 
-	customerName := stripPrefixCI(parts[3], "customer")
-	customerName = strings.TrimSpace(customerName)
-	if customerName == "" {
-		return Command{}, fmt.Errorf("nama customer tidak boleh kosong")
+	cmd := Command{
+		Type:        CmdBooking,
+		CarQuery:    parts[0],
+		DriverQuery: parts[1],
+		RangeStart:  start,
+		RangeEnd:    end,
 	}
 
-	destination := ""
-	if len(parts) >= 5 {
-		destination = strings.TrimSpace(stripPrefixCI(parts[4], "tujuan"))
+	// Longer keywords first so "no hp" isn't shadowed by a shorter match.
+	keywords := []struct {
+		word   string
+		assign func(v string)
+	}{
+		{"customer", func(v string) { cmd.CustomerName = v }},
+		{"pemakai", func(v string) { cmd.CustomerName = v }},
+		{"tujuan", func(v string) { cmd.Destination = v }},
+		{"pemesan", func(v string) { cmd.Pemesan = v }},
+		{"jemput", func(v string) { cmd.PickupPoint = v }},
+		{"rekanan", func(v string) { cmd.Partner = v }},
+		{"catatan", func(v string) { cmd.Notes = v }},
+		{"no hp", func(v string) { cmd.CustomerPhone = v }},
+		{"nohp", func(v string) { cmd.CustomerPhone = v }},
+		{"hp", func(v string) { cmd.CustomerPhone = v }},
 	}
 
-	return Command{
-		Type:         CmdBooking,
-		CarQuery:     carQuery,
-		DriverQuery:  driverQuery,
-		RangeStart:   start,
-		RangeEnd:     end,
-		CustomerName: customerName,
-		Destination:  destination,
-	}, nil
+	for _, p := range parts[3:] {
+		lower := strings.ToLower(p)
+		matched := false
+		for _, kw := range keywords {
+			if strings.HasPrefix(lower, kw.word) {
+				kw.assign(strings.TrimSpace(stripPrefixCI(p, kw.word)))
+				matched = true
+				break
+			}
+		}
+		// An untagged trailing segment is treated as notes rather than
+		// discarded, so nothing the user typed is silently lost.
+		if !matched {
+			if cmd.Notes == "" {
+				cmd.Notes = p
+			} else {
+				cmd.Notes += ", " + p
+			}
+		}
+	}
+
+	if cmd.CustomerName == "" {
+		return Command{}, fmt.Errorf("nama customer tidak boleh kosong, gunakan: customer [nama]")
+	}
+
+	return cmd, nil
 }
 
 func parseEdit(text string) (Command, error) {

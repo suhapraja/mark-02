@@ -368,12 +368,17 @@ func (h *WebhookHandler) handleCheckAvailability(from string, cmd parser.Command
 
 func (h *WebhookHandler) handleBooking(from string, cmd parser.Command) {
 	order, err := h.Booking.CreateBooking(service.CreateBookingInput{
-		CarQuery:     cmd.CarQuery,
-		DriverQuery:  cmd.DriverQuery,
-		CustomerName: cmd.CustomerName,
-		Destination:  cmd.Destination,
-		Start:        cmd.RangeStart,
-		End:          cmd.RangeEnd,
+		CarQuery:      cmd.CarQuery,
+		DriverQuery:   cmd.DriverQuery,
+		CustomerName:  cmd.CustomerName,
+		CustomerPhone: cmd.CustomerPhone,
+		Destination:   cmd.Destination,
+		Pemesan:       cmd.Pemesan,
+		PickupPoint:   cmd.PickupPoint,
+		Partner:       cmd.Partner,
+		Notes:         cmd.Notes,
+		Start:         cmd.RangeStart,
+		End:           cmd.RangeEnd,
 	})
 	if err != nil {
 		h.reply(from, "⚠️ "+err.Error())

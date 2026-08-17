@@ -83,6 +83,7 @@ and the last remaining superadmin cannot be removed.
 cek mobil 20 Agustus 08:00 - 22 Agustus 17:00
 booking Avanza B1234, Budi, 20 Agustus 08:00 - 22 Agustus 17:00, customer Yusuf, tujuan Bandung
 batal 12
+
 ubah 12, driver Andi
 ubah 12, mobil Innova B5678
 ubah 12, waktu 21 Agustus 09:00 - 23 Agustus 17:00
@@ -104,6 +105,58 @@ siap Avanza B1234
 
 Phone numbers are accepted in any common format — `08123456789`,
 `+62 812-3456-789` and `628123456789` all resolve to the same number.
+
+### Booking with the full record
+
+The first three parts are positional (car, driver, time range). Everything
+after is tagged and can appear in any order — all optional except
+`customer`:
+
+```
+booking Avanza, Budi, 20 Agustus 08:00 - 22 Agustus 17:00,
+  customer Richard Indra,
+  tujuan Bandung,
+  pemesan Ria DX,
+  jemput Soetta,
+  rekanan KH,
+  hp 0895 0569 5138,
+  catatan T3 jam 15:00wib
+```
+
+| Tag | Spreadsheet column | Meaning |
+|---|---|---|
+| `customer` / `pemakai` | Pemakai | Passenger name (required) |
+| `hp` / `no hp` | Nmr HP | Passenger phone |
+| `tujuan` | — | Destination, merged into Keterangan |
+| `pemesan` | Pemesan | Booking agent |
+| `jemput` | Jptan | Pickup point, e.g. `Soetta`, `Home` |
+| `rekanan` | Rekanan | Partner, when the car is subcontracted |
+| `catatan` | Keterangan | Free-text notes |
+
+An untagged trailing segment is kept as notes rather than dropped.
+
+## Excel export
+
+`export` builds a workbook modelled on the spreadsheet this bot replaces
+(`Data Pemakaian Mobil`), so it reads the way the business already
+expects:
+
+- **One sheet per month**, named `Agu'26`, `Sept'26`, …
+- **Columns A–J identical** to the manual sheet: Tgl, Pemesan, Pemakai,
+  Nmr HP, Mobil, Driver, Plat Nmr, Rekanan, Jptan, Keterangan — same
+  order, same column widths
+- `Tgl` keeps the original `20 - 22` day-range style
+
+What the manual version could not do, added as columns K–N and a sheet:
+
+- **Jemput / Kembali** — real pickup and return timestamps, instead of
+  times buried in free text
+- **Status** — Aktif / Selesai / Batal, colour-coded
+- **Order** — the order number, so a row can be traced back to `batal 12`
+  or `ubah 12`
+- **Ringkasan sheet** — totals by status, orders per month, usage per
+  car, trips per driver, and the most frequent pemesan
+- Frozen header row and autofilter on every month sheet
 
 **Driver:**
 
