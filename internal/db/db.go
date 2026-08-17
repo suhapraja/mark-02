@@ -23,6 +23,7 @@ func AutoMigrate(conn *gorm.DB) error {
 	return conn.AutoMigrate(
 		&models.Car{},
 		&models.Driver{},
+		&models.Staff{},
 		&models.Order{},
 		&models.LocationLog{},
 	)

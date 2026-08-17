@@ -19,6 +19,30 @@ type Change struct {
 type Value struct {
 	Messages []Message `json:"messages"`
 	Contacts []Contact `json:"contacts"`
+	// Statuses carries delivery receipts for messages the bot sent
+	// (sent/delivered/read/failed). Meta reports send failures here
+	// rather than on the original API call, which returns 200 as soon
+	// as the message is accepted for delivery.
+	Statuses []Status `json:"statuses"`
+}
+
+type Status struct {
+	ID          string        `json:"id"`
+	RecipientID string        `json:"recipient_id"`
+	Status      string        `json:"status"` // sent | delivered | read | failed
+	Timestamp   string        `json:"timestamp"`
+	Errors      []StatusError `json:"errors"`
+}
+
+type StatusError struct {
+	Code      int             `json:"code"`
+	Title     string          `json:"title"`
+	Message   string          `json:"message"`
+	ErrorData StatusErrorData `json:"error_data"`
+}
+
+type StatusErrorData struct {
+	Details string `json:"details"`
 }
 
 type Contact struct {

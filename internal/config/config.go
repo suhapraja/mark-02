@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -10,10 +11,10 @@ import (
 type Config struct {
 	Port                  string
 	DatabaseURL           string
-	WhatsAppToken         string // Meta Cloud API permanent/temp access token
-	WhatsAppPhoneNumberID string // Meta phone number ID for sending messages
-	WhatsAppVerifyToken   string // Used to verify the webhook with Meta
-	AdminPhone            string // Dad's WhatsApp number, e.g. 62812xxxxxxx
+	WhatsAppToken         string   // Meta Cloud API permanent/temp access token
+	WhatsAppPhoneNumberID string   // Meta phone number ID for sending messages
+	WhatsAppVerifyToken   string   // Used to verify the webhook with Meta
+	SuperadminPhones      []string // Comma-separated; re-applied on every startup
 }
 
 func Load() Config {
@@ -29,8 +30,21 @@ func Load() Config {
 		WhatsAppToken:         mustGetEnv("WHATSAPP_TOKEN"),
 		WhatsAppPhoneNumberID: mustGetEnv("WHATSAPP_PHONE_NUMBER_ID"),
 		WhatsAppVerifyToken:   mustGetEnv("WHATSAPP_VERIFY_TOKEN"),
-		AdminPhone:            mustGetEnv("ADMIN_PHONE"),
+		SuperadminPhones:      splitList(mustGetEnv("SUPERADMIN_PHONES")),
 	}
+}
+
+// splitList parses a comma-separated env value, ignoring blanks and
+// surrounding whitespace.
+func splitList(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func getEnv(key, fallback string) string {

@@ -24,12 +24,12 @@ cmd/
 internal/
   config/   — environment variable loading
   db/       — database connection + auto-migration
-  models/   — Car, Driver, Order, LocationLog
+  models/   — Car, Driver, Staff, Order, LocationLog
   parser/   — parses Indonesian WhatsApp commands into structured data
   service/  — business logic (availability, booking, export)
   whatsapp/ — WhatsApp Cloud API client + webhook payload types
   handlers/ — webhook HTTP handlers, ties parser + service + whatsapp together
-seed/       — cars.json / drivers.json — fill these in with real data
+seed/       — cars.json / drivers.json / staff.json — fill in with real data
 ```
 
 ## Setup
@@ -40,8 +40,8 @@ seed/       — cars.json / drivers.json — fill these in with real data
 2. **Set up PostgreSQL** — locally via Docker, or use whatever your
    hosting platform provisions.
 
-3. **Fill in `seed/cars.json` and `seed/drivers.json`** with the real 20
-   cars and driver registry, then run:
+3. **Fill in `seed/cars.json`, `seed/drivers.json` and `seed/staff.json`**
+   with the real cars, drivers and staff, then run:
 
    ```
    go run ./cmd/seed
@@ -58,9 +58,26 @@ seed/       — cars.json / drivers.json — fill these in with real data
    - `GET /webhook` — Meta's verification challenge endpoint
    - `POST /webhook` — receives incoming WhatsApp messages
 
+## Roles
+
+The bot decides how to read a message purely from the sender's number.
+
+| Role | Who | Can do |
+|---|---|---|
+| **Superadmin** | Business owner, developer | Everything admins can, plus manage staff/drivers and car maintenance |
+| **Admin** | Trusted staff | Availability, bookings, cancel, edit, export |
+| **Driver** | Drivers | Report trip completion and location |
+
+A number can be staff *or* a driver, never both — registering the same
+number twice is rejected.
+
+Superadmins listed in `SUPERADMIN_PHONES` are re-applied on every startup,
+so there is always a way back in. Everyone else is managed from WhatsApp,
+and the last remaining superadmin cannot be removed.
+
 ## Commands (WhatsApp)
 
-**Admin (dad):**
+**Admin and superadmin:**
 
 ```
 cek mobil 20 Agustus 08:00 - 22 Agustus 17:00
@@ -72,6 +89,21 @@ ubah 12, waktu 21 Agustus 09:00 - 23 Agustus 17:00
 export
 help
 ```
+
+**Superadmin only:**
+
+```
+tambah admin Budi, 08123456789
+tambah driver Andi, 08123456790
+hapus admin 08123456789
+hapus driver 08123456790
+daftar staff
+maintenance Avanza B1234
+siap Avanza B1234
+```
+
+Phone numbers are accepted in any common format — `08123456789`,
+`+62 812-3456-789` and `628123456789` all resolve to the same number.
 
 **Driver:**
 

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
+	"github.com/suhapraja/mark-02/internal/models"
 	"github.com/suhapraja/mark-02/internal/parser"
 	"github.com/suhapraja/mark-02/internal/service"
 	"github.com/suhapraja/mark-02/internal/whatsapp"
@@ -13,11 +15,11 @@ import (
 
 type WebhookHandler struct {
 	VerifyToken  string
-	AdminPhone   string
 	WA           *whatsapp.Client
 	Availability *service.AvailabilityService
 	Booking      *service.BookingService
 	Export       *service.ExportService
+	Staff        *service.StaffService
 }
 
 // VerifyWebhook handles Meta's GET verification challenge when you first
@@ -46,7 +48,22 @@ func (h *WebhookHandler) ReceiveMessage(w http.ResponseWriter, r *http.Request) 
 
 	for _, entry := range payload.Entry {
 		for _, change := range entry.Changes {
+			// Delivery receipts for messages we sent. Logged rather than
+			// acted on — a "failed" status here is the only place Meta
+			// reports that an accepted message never reached the user.
+			for _, st := range change.Value.Statuses {
+				if len(st.Errors) > 0 {
+					for _, e := range st.Errors {
+						log.Printf("message %s to %s FAILED: code=%d title=%q message=%q details=%q",
+							st.ID, st.RecipientID, e.Code, e.Title, e.Message, e.ErrorData.Details)
+					}
+					continue
+				}
+				log.Printf("message %s to %s status=%s", st.ID, st.RecipientID, st.Status)
+			}
+
 			for _, msg := range change.Value.Messages {
+				log.Printf("incoming message from %s type=%s", msg.From, msg.Type)
 				if msg.Type != "text" {
 					h.reply(msg.From, "Maaf, saat ini bot hanya bisa membaca pesan teks.")
 					continue
@@ -60,8 +77,10 @@ func (h *WebhookHandler) ReceiveMessage(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *WebhookHandler) handleText(from, text string) {
-	if from == h.AdminPhone {
-		h.handleAdmin(from, text)
+	// Who is speaking decides how the message is read. Staff and drivers
+	// are mutually exclusive, enforced when either is registered.
+	if staff, err := service.FindStaffByPhone(h.Booking.DB, from); err == nil {
+		h.handleStaff(from, *staff, text)
 		return
 	}
 
@@ -73,16 +92,21 @@ func (h *WebhookHandler) handleText(from, text string) {
 	h.reply(from, "Nomor ini belum terdaftar di sistem. Hubungi admin jika ini seharusnya terdaftar.")
 }
 
-func (h *WebhookHandler) handleAdmin(from, text string) {
+func (h *WebhookHandler) handleStaff(from string, staff models.Staff, text string) {
 	cmd, err := parser.ParseAdminCommand(text)
 	if err != nil {
 		h.reply(from, "⚠️ "+err.Error())
 		return
 	}
 
+	if cmd.Type.SuperadminOnly() && !staff.IsSuperadmin() {
+		h.reply(from, "⚠️ Perintah ini hanya untuk superadmin.")
+		return
+	}
+
 	switch cmd.Type {
 	case parser.CmdHelp:
-		h.reply(from, adminHelpText)
+		h.reply(from, helpTextFor(staff))
 
 	case parser.CmdCheckAvailability:
 		h.handleCheckAvailability(from, cmd)
@@ -99,8 +123,113 @@ func (h *WebhookHandler) handleAdmin(from, text string) {
 	case parser.CmdExport:
 		h.handleExport(from)
 
+	case parser.CmdAddStaff:
+		h.handleAddStaff(from, cmd)
+
+	case parser.CmdAddDriver:
+		h.handleAddDriver(from, cmd)
+
+	case parser.CmdRemoveStaff:
+		h.handleRemoveStaff(from, cmd)
+
+	case parser.CmdRemoveDriver:
+		h.handleRemoveDriver(from, cmd)
+
+	case parser.CmdListStaff:
+		h.handleListStaff(from)
+
+	case parser.CmdSetMaintenance:
+		h.handleSetCarStatus(from, cmd, models.CarMaintenance)
+
+	case parser.CmdSetReady:
+		h.handleSetCarStatus(from, cmd, models.CarAvailable)
+
 	default:
 		h.reply(from, "Perintah tidak dikenali. Ketik \"help\" untuk melihat daftar perintah.")
+	}
+}
+
+func (h *WebhookHandler) handleAddStaff(from string, cmd parser.Command) {
+	staff, err := h.Staff.AddStaff(cmd.PersonName, cmd.PersonPhone, models.RoleAdmin)
+	if err != nil {
+		h.reply(from, "⚠️ "+err.Error())
+		return
+	}
+	h.reply(from, fmt.Sprintf("✅ Admin ditambahkan: %s (%s)", staff.Name, staff.Phone))
+	h.reply(staff.Phone, fmt.Sprintf(
+		"👋 Halo %s, kamu sekarang terdaftar sebagai admin di sistem rental.\nKetik \"help\" untuk melihat daftar perintah.",
+		staff.Name))
+}
+
+func (h *WebhookHandler) handleAddDriver(from string, cmd parser.Command) {
+	driver, err := h.Staff.AddDriver(cmd.PersonName, cmd.PersonPhone)
+	if err != nil {
+		h.reply(from, "⚠️ "+err.Error())
+		return
+	}
+	h.reply(from, fmt.Sprintf("✅ Driver ditambahkan: %s (%s)", driver.Name, driver.Phone))
+	h.reply(driver.Phone, fmt.Sprintf(
+		"👋 Halo %s, kamu sekarang terdaftar sebagai driver.\nSetelah trip selesai, balas: \"selesai, sekarang di [kota]\"",
+		driver.Name))
+}
+
+func (h *WebhookHandler) handleRemoveStaff(from string, cmd parser.Command) {
+	staff, err := h.Staff.RemoveStaff(cmd.PersonPhone)
+	if err != nil {
+		h.reply(from, "⚠️ "+err.Error())
+		return
+	}
+	h.reply(from, fmt.Sprintf("🗑️ Admin dihapus: %s (%s)", staff.Name, staff.Phone))
+}
+
+func (h *WebhookHandler) handleRemoveDriver(from string, cmd parser.Command) {
+	driver, err := h.Staff.RemoveDriver(cmd.PersonPhone)
+	if err != nil {
+		h.reply(from, "⚠️ "+err.Error())
+		return
+	}
+	h.reply(from, fmt.Sprintf("🗑️ Driver dihapus: %s (%s)", driver.Name, driver.Phone))
+}
+
+func (h *WebhookHandler) handleListStaff(from string) {
+	staff, err := h.Staff.ListStaff()
+	if err != nil {
+		h.reply(from, "⚠️ Gagal mengambil daftar staff: "+err.Error())
+		return
+	}
+
+	msg := "👥 Daftar staff:\n"
+	if len(staff) == 0 {
+		msg += "- Belum ada staff terdaftar\n"
+	}
+	for _, s := range staff {
+		msg += fmt.Sprintf("- %s (%s) — %s\n", s.Name, s.Phone, s.Role)
+	}
+	h.reply(from, msg)
+}
+
+func (h *WebhookHandler) handleSetCarStatus(from string, cmd parser.Command, status models.CarStatus) {
+	car, err := h.Staff.SetCarStatus(cmd.CarQuery, status)
+	if err != nil {
+		h.reply(from, "⚠️ "+err.Error())
+		return
+	}
+	if status == models.CarMaintenance {
+		h.reply(from, fmt.Sprintf("🔧 %s (%s) ditandai sedang perbaikan", car.PlateNumber, car.Model))
+		return
+	}
+	h.reply(from, fmt.Sprintf("✅ %s (%s) siap dipakai lagi", car.PlateNumber, car.Model))
+}
+
+// notifyStaff sends an operational update to everyone on the staff list.
+func (h *WebhookHandler) notifyStaff(text string) {
+	phones, err := h.Staff.StaffPhones()
+	if err != nil {
+		log.Printf("failed to load staff phones: %v", err)
+		return
+	}
+	for _, p := range phones {
+		h.reply(p, text)
 	}
 }
 
@@ -119,7 +248,7 @@ func (h *WebhookHandler) handleDriver(from, text string) {
 			return
 		}
 		h.reply(from, fmt.Sprintf("✅ Trip order #%d selesai. Lokasi tercatat: %s", order.ID, cmd.Location))
-		h.reply(h.AdminPhone, fmt.Sprintf("ℹ️ Order #%d selesai, driver kini di %s", order.ID, cmd.Location))
+		h.notifyStaff(fmt.Sprintf("ℹ️ Order #%d selesai, driver kini di %s", order.ID, cmd.Location))
 
 	case parser.CmdDriverPosition:
 		if err := h.Booking.UpdateDriverPosition(from, cmd.Location); err != nil {
@@ -249,9 +378,22 @@ func (h *WebhookHandler) handleExport(from string) {
 }
 
 func (h *WebhookHandler) reply(to, text string) {
+	// Logged so replies are visible even when the send itself fails
+	// (e.g. outside WhatsApp's 24-hour window), which is otherwise
+	// impossible to diagnose from the outside.
+	log.Printf("reply to %s: %s", to, strings.ReplaceAll(text, "\n", " | "))
 	if err := h.WA.SendText(to, text); err != nil {
 		log.Printf("failed to send message to %s: %v", to, err)
 	}
+}
+
+// helpTextFor returns the command list appropriate to the sender's role,
+// so admins aren't shown commands they can't run.
+func helpTextFor(staff models.Staff) string {
+	if staff.IsSuperadmin() {
+		return adminHelpText + "\n\n" + superadminHelpText
+	}
+	return adminHelpText
 }
 
 const adminHelpText = `📖 Daftar perintah:
@@ -271,3 +413,23 @@ ubah [nomor order], waktu [tgl jam - tgl jam]
 
 export
   Kirim file excel semua data order`
+
+const superadminHelpText = `👑 Khusus superadmin:
+
+tambah admin [nama], [nomor]
+  cth: tambah admin Budi, 08123456789
+
+tambah driver [nama], [nomor]
+  cth: tambah driver Andi, 08123456790
+
+hapus admin [nomor]
+hapus driver [nomor]
+
+daftar staff
+  Lihat semua admin & superadmin
+
+maintenance [mobil]
+  cth: maintenance Avanza B1234
+
+siap [mobil]
+  Tandai mobil selesai perbaikan`

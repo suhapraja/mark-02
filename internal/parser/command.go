@@ -19,7 +19,28 @@ const (
 	CmdDriverPosition    CommandType = "driver_position"
 	CmdUnknown           CommandType = "unknown"
 	CmdHelp              CommandType = "help"
+
+	// Superadmin-only commands.
+	CmdAddStaff       CommandType = "add_staff"
+	CmdAddDriver      CommandType = "add_driver"
+	CmdRemoveStaff    CommandType = "remove_staff"
+	CmdRemoveDriver   CommandType = "remove_driver"
+	CmdListStaff      CommandType = "list_staff"
+	CmdSetMaintenance CommandType = "set_maintenance"
+	CmdSetReady       CommandType = "set_ready"
 )
+
+// SuperadminOnly reports whether a command may only be run by a
+// superadmin. Regular admins get a clear refusal rather than silence.
+func (c CommandType) SuperadminOnly() bool {
+	switch c {
+	case CmdAddStaff, CmdAddDriver, CmdRemoveStaff, CmdRemoveDriver,
+		CmdListStaff, CmdSetMaintenance, CmdSetReady:
+		return true
+	default:
+		return false
+	}
+}
 
 type Command struct {
 	Type CommandType
@@ -41,6 +62,10 @@ type Command struct {
 
 	// driver_complete / driver_position
 	Location string
+
+	// staff/driver management (superadmin)
+	PersonName  string
+	PersonPhone string
 }
 
 // ParseAdminCommand interprets a message from the admin (dad) number.
@@ -80,9 +105,64 @@ func ParseAdminCommand(raw string) (Command, error) {
 	case strings.HasPrefix(lower, "ubah"):
 		return parseEdit(text)
 
+	case strings.HasPrefix(lower, "tambah admin"):
+		return parseAddPerson(text, "tambah admin", CmdAddStaff)
+
+	case strings.HasPrefix(lower, "tambah driver"):
+		return parseAddPerson(text, "tambah driver", CmdAddDriver)
+
+	case strings.HasPrefix(lower, "hapus admin"):
+		return parseRemovePerson(text, "hapus admin", CmdRemoveStaff)
+
+	case strings.HasPrefix(lower, "hapus driver"):
+		return parseRemovePerson(text, "hapus driver", CmdRemoveDriver)
+
+	case lower == "daftar staff" || lower == "daftar admin":
+		return Command{Type: CmdListStaff}, nil
+
+	case strings.HasPrefix(lower, "maintenance"):
+		car := strings.TrimSpace(stripPrefixCI(text, "maintenance"))
+		if car == "" {
+			return Command{}, fmt.Errorf(`sebutkan mobilnya, cth: "maintenance Avanza B1234"`)
+		}
+		return Command{Type: CmdSetMaintenance, CarQuery: car}, nil
+
+	case strings.HasPrefix(lower, "siap"):
+		car := strings.TrimSpace(stripPrefixCI(text, "siap"))
+		if car == "" {
+			return Command{}, fmt.Errorf(`sebutkan mobilnya, cth: "siap Avanza B1234"`)
+		}
+		return Command{Type: CmdSetReady, CarQuery: car}, nil
+
 	default:
 		return Command{Type: CmdUnknown}, nil
 	}
+}
+
+// parseAddPerson handles "tambah admin Budi, 08123456789" and the
+// equivalent driver form.
+func parseAddPerson(text, prefix string, cmdType CommandType) (Command, error) {
+	body := strings.TrimSpace(stripPrefixCI(text, prefix))
+	parts := splitAndTrim(body, ",")
+	if len(parts) < 2 {
+		return Command{}, fmt.Errorf(
+			"format tidak lengkap, gunakan contoh:\n%s Budi, 08123456789", prefix)
+	}
+	return Command{
+		Type:        cmdType,
+		PersonName:  parts[0],
+		PersonPhone: parts[1],
+	}, nil
+}
+
+// parseRemovePerson handles "hapus admin 08123456789".
+func parseRemovePerson(text, prefix string, cmdType CommandType) (Command, error) {
+	phone := strings.TrimSpace(stripPrefixCI(text, prefix))
+	if phone == "" {
+		return Command{}, fmt.Errorf(
+			"sebutkan nomornya, gunakan contoh:\n%s 08123456789", prefix)
+	}
+	return Command{Type: cmdType, PersonPhone: phone}, nil
 }
 
 // ParseDriverCommand interprets a message from a registered driver number.

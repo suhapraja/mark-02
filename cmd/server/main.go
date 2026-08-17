@@ -26,14 +26,20 @@ func main() {
 	availabilitySvc := service.NewAvailabilityService(conn)
 	bookingSvc := service.NewBookingService(conn, availabilitySvc)
 	exportSvc := service.NewExportService(conn)
+	staffSvc := service.NewStaffService(conn)
+
+	// Re-applied on every startup so there's always a way back in.
+	if err := staffSvc.BootstrapSuperadmins(cfg.SuperadminPhones); err != nil {
+		log.Fatalf("failed to bootstrap superadmins: %v", err)
+	}
 
 	webhookHandler := &handlers.WebhookHandler{
 		VerifyToken:  cfg.WhatsAppVerifyToken,
-		AdminPhone:   cfg.AdminPhone,
 		WA:           waClient,
 		Availability: availabilitySvc,
 		Booking:      bookingSvc,
 		Export:       exportSvc,
+		Staff:        staffSvc,
 	}
 
 	r := chi.NewRouter()
