@@ -26,5 +26,6 @@ func AutoMigrate(conn *gorm.DB) error {
 		&models.Staff{},
 		&models.Order{},
 		&models.LocationLog{},
+		&models.ContactWindow{},
 	)
 }

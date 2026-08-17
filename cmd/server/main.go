@@ -27,6 +27,7 @@ func main() {
 	bookingSvc := service.NewBookingService(conn, availabilitySvc)
 	exportSvc := service.NewExportService(conn)
 	staffSvc := service.NewStaffService(conn)
+	notifier := service.NewNotifier(conn, waClient)
 
 	// Re-applied on every startup so there's always a way back in.
 	if err := staffSvc.BootstrapSuperadmins(cfg.SuperadminPhones); err != nil {
@@ -40,6 +41,7 @@ func main() {
 		Booking:      bookingSvc,
 		Export:       exportSvc,
 		Staff:        staffSvc,
+		Notify:       notifier,
 	}
 
 	r := chi.NewRouter()

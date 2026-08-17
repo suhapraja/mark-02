@@ -135,6 +135,31 @@ booking Avanza, Budi, 20 Agustus 08:00 - 22 Agustus 17:00,
 
 An untagged trailing segment is kept as notes rather than dropped.
 
+## Driver notifications and the 24-hour window
+
+WhatsApp only delivers free-form messages within 24 hours of the
+recipient's own last message. Outside that, only approved templates get
+through. Meta does not report this at send time — the API returns 200 and
+drops the message, surfacing only later as a `131047` status webhook. So
+the decision has to be made *before* sending.
+
+Every inbound message updates `contact_windows`, and notifications use it
+to pick a path:
+
+| Situation | What happens |
+|---|---|
+| Driver messaged within 24h | Free-form message, full detail |
+| Outside 24h, new order | Approved template `notifikasi_order_baru` |
+| Outside 24h, cancel/edit | No template exists — admin is told to phone the driver |
+| Template send fails | Admin is told to phone the driver, with the number |
+
+The admin is never left believing a driver was notified when they were
+not. Delivery receipts are logged, so failures are visible in the logs
+rather than silent.
+
+Adding templates for cancel and edit would remove the manual fallback in
+those two cases; each needs submitting to Meta for approval.
+
 ## Excel export
 
 `export` builds a workbook modelled on the spreadsheet this bot replaces

@@ -20,6 +20,7 @@ type WebhookHandler struct {
 	Booking      *service.BookingService
 	Export       *service.ExportService
 	Staff        *service.StaffService
+	Notify       *service.Notifier
 }
 
 // VerifyWebhook handles Meta's GET verification challenge when you first
@@ -64,6 +65,10 @@ func (h *WebhookHandler) ReceiveMessage(w http.ResponseWriter, r *http.Request) 
 
 			for _, msg := range change.Value.Messages {
 				log.Printf("incoming message from %s type=%s", msg.From, msg.Type)
+				// Their message opens a 24-hour free-form window; record
+				// it before replying so notifications can pick the right
+				// send method later.
+				h.Notify.RecordInbound(msg.From)
 				if msg.Type != "text" {
 					h.reply(msg.From, "Maaf, saat ini bot hanya bisa membaca pesan teks.")
 					continue
@@ -385,20 +390,38 @@ func (h *WebhookHandler) handleBooking(from string, cmd parser.Command) {
 		return
 	}
 
+	pickup := order.PickupDatetime.In(parser.JakartaLocation).Format("2 Jan 15:04")
+	ret := order.ReturnDatetime.In(parser.JakartaLocation).Format("2 Jan 15:04")
+
 	h.reply(from, fmt.Sprintf(
 		"✅ Order #%d dibuat\nMobil: %s\nDriver: %s\nJemput: %s\nKembali: %s\nCustomer: %s\nTujuan: %s",
 		order.ID, order.Car.PlateNumber, order.Driver.Name,
-		order.PickupDatetime.In(parser.JakartaLocation).Format("2 Jan 15:04"), order.ReturnDatetime.In(parser.JakartaLocation).Format("2 Jan 15:04"),
-		order.CustomerName, order.DestinationCity,
+		pickup, ret, order.CustomerName, order.DestinationCity,
 	))
 
-	// Auto-notify the assigned driver.
-	h.reply(order.Driver.Phone, fmt.Sprintf(
+	// Auto-notify the assigned driver. Free-form if their 24-hour window
+	// is open, otherwise via the approved template.
+	freeform := fmt.Sprintf(
 		"📋 Order baru untuk kamu\nOrder #%d\nMobil: %s\nJemput: %s\nKembali: %s\nCustomer: %s\nTujuan: %s\n\nBalas \"selesai, sekarang di [kota]\" setelah trip selesai.",
-		order.ID, order.Car.PlateNumber,
-		order.PickupDatetime.In(parser.JakartaLocation).Format("2 Jan 15:04"), order.ReturnDatetime.In(parser.JakartaLocation).Format("2 Jan 15:04"),
+		order.ID, order.Car.PlateNumber, pickup, ret,
 		order.CustomerName, order.DestinationCity,
-	))
+	)
+	templateParams := []string{
+		fmt.Sprintf("%d", order.ID),
+		fmt.Sprintf("%s %s", order.Car.Model, order.Car.PlateNumber),
+		pickup,
+		ret,
+		order.CustomerName,
+		order.DestinationCity,
+	}
+	log.Printf("notify driver %s for order #%d (window open: %t)",
+		order.Driver.Phone, order.ID, h.Notify.CanReachFreeform(order.Driver.Phone))
+
+	if !h.Notify.NotifyNewOrder(order, freeform, templateParams) {
+		h.reply(from, fmt.Sprintf(
+			"⚠️ Order #%d tersimpan, tapi driver %s tidak bisa dihubungi otomatis (di luar 24 jam WhatsApp). Tolong hubungi manual: %s",
+			order.ID, order.Driver.Name, order.Driver.Phone))
+	}
 }
 
 func (h *WebhookHandler) handleCancel(from string, cmd parser.Command) {
@@ -408,7 +431,24 @@ func (h *WebhookHandler) handleCancel(from string, cmd parser.Command) {
 		return
 	}
 	h.reply(from, fmt.Sprintf("🗑️ Order #%d dibatalkan", order.ID))
-	h.reply(order.Driver.Phone, fmt.Sprintf("🗑️ Order #%d dibatalkan oleh admin", order.ID))
+	h.notifyDriverOrWarn(from, order,
+		fmt.Sprintf("🗑️ Order #%d dibatalkan oleh admin", order.ID),
+		"pembatalan")
+}
+
+// notifyDriverOrWarn sends a free-form update to the driver, or tells
+// the admin to call them when the 24-hour window has closed. Cancel and
+// edit have no approved template, so there is no automatic fallback.
+func (h *WebhookHandler) notifyDriverOrWarn(adminPhone string, order *models.Order, text, what string) {
+	if h.Notify.CanReachFreeform(order.Driver.Phone) {
+		h.reply(order.Driver.Phone, text)
+		return
+	}
+	log.Printf("cannot reach driver %s for %s of order #%d: outside 24h window",
+		order.Driver.Phone, what, order.ID)
+	h.reply(adminPhone, fmt.Sprintf(
+		"⚠️ Driver %s tidak bisa dihubungi otomatis untuk %s order #%d (di luar 24 jam WhatsApp). Tolong hubungi manual: %s",
+		order.Driver.Name, what, order.ID, order.Driver.Phone))
 }
 
 func (h *WebhookHandler) handleEdit(from string, cmd parser.Command) {
@@ -428,7 +468,12 @@ func (h *WebhookHandler) handleEdit(from string, cmd parser.Command) {
 		order.ID, order.Car.PlateNumber, order.Driver.Name,
 		order.PickupDatetime.In(parser.JakartaLocation).Format("2 Jan 15:04"), order.ReturnDatetime.In(parser.JakartaLocation).Format("2 Jan 15:04"),
 	))
-	h.reply(order.Driver.Phone, fmt.Sprintf("✏️ Order #%d kamu telah diperbarui, cek detail terbaru dengan admin.", order.ID))
+	h.notifyDriverOrWarn(from, order,
+		fmt.Sprintf("✏️ Order #%d kamu telah diperbarui\nMobil: %s\nJemput: %s\nKembali: %s",
+			order.ID, order.Car.PlateNumber,
+			order.PickupDatetime.In(parser.JakartaLocation).Format("2 Jan 15:04"),
+			order.ReturnDatetime.In(parser.JakartaLocation).Format("2 Jan 15:04")),
+		"perubahan")
 }
 
 func (h *WebhookHandler) handleExport(from string) {

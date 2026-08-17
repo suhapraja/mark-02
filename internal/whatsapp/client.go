@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strings"
 )
 
 // apiVersion is the Graph API version used for all WhatsApp Cloud API
@@ -75,6 +76,75 @@ func (c *Client) SendText(to, body string) error {
 	}
 
 	return nil
+}
+
+// SendTemplate sends an approved message template. Unlike SendText this
+// is delivered even outside WhatsApp's 24-hour customer service window,
+// which is the only way to reach someone who hasn't messaged recently.
+//
+// Body parameters must be non-empty and single-line: WhatsApp rejects
+// newlines, tabs, and runs of 4+ spaces inside a parameter, so callers
+// should pass values through SanitizeParam.
+func (c *Client) SendTemplate(to, name, langCode string, bodyParams []string) error {
+	url := fmt.Sprintf("https://graph.facebook.com/%s/%s/messages", apiVersion, c.PhoneNumberID)
+
+	params := make([]map[string]string, 0, len(bodyParams))
+	for _, p := range bodyParams {
+		params = append(params, map[string]string{"type": "text", "text": SanitizeParam(p)})
+	}
+
+	template := map[string]any{
+		"name":     name,
+		"language": map[string]string{"code": langCode},
+	}
+	if len(params) > 0 {
+		template["components"] = []map[string]any{
+			{"type": "body", "parameters": params},
+		}
+	}
+
+	reqBody := map[string]any{
+		"messaging_product": "whatsapp",
+		"to":                to,
+		"type":              "template",
+		"template":          template,
+	}
+
+	payload, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("whatsapp template error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+// SanitizeParam makes a value safe to use as a template parameter:
+// collapses all whitespace (newlines included) to single spaces and
+// substitutes a placeholder for empty values, which WhatsApp rejects.
+func SanitizeParam(s string) string {
+	collapsed := strings.Join(strings.Fields(s), " ")
+	if collapsed == "" {
+		return "-"
+	}
+	return collapsed
 }
 
 // UploadMedia uploads a file to WhatsApp's media endpoint and returns a
