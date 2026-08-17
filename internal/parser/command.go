@@ -23,9 +23,13 @@ const (
 	// Superadmin-only commands.
 	CmdAddStaff       CommandType = "add_staff"
 	CmdAddDriver      CommandType = "add_driver"
+	CmdAddCar         CommandType = "add_car"
 	CmdRemoveStaff    CommandType = "remove_staff"
 	CmdRemoveDriver   CommandType = "remove_driver"
+	CmdRemoveCar      CommandType = "remove_car"
 	CmdListStaff      CommandType = "list_staff"
+	CmdListDrivers    CommandType = "list_drivers"
+	CmdListCars       CommandType = "list_cars"
 	CmdSetMaintenance CommandType = "set_maintenance"
 	CmdSetReady       CommandType = "set_ready"
 )
@@ -34,8 +38,10 @@ const (
 // superadmin. Regular admins get a clear refusal rather than silence.
 func (c CommandType) SuperadminOnly() bool {
 	switch c {
-	case CmdAddStaff, CmdAddDriver, CmdRemoveStaff, CmdRemoveDriver,
-		CmdListStaff, CmdSetMaintenance, CmdSetReady:
+	case CmdAddStaff, CmdAddDriver, CmdAddCar,
+		CmdRemoveStaff, CmdRemoveDriver, CmdRemoveCar,
+		CmdListStaff, CmdListDrivers, CmdListCars,
+		CmdSetMaintenance, CmdSetReady:
 		return true
 	default:
 		return false
@@ -66,6 +72,10 @@ type Command struct {
 	// staff/driver management (superadmin)
 	PersonName  string
 	PersonPhone string
+
+	// car management (superadmin)
+	CarPlate string
+	CarModel string
 }
 
 // ParseAdminCommand interprets a message from the admin (dad) number.
@@ -117,8 +127,30 @@ func ParseAdminCommand(raw string) (Command, error) {
 	case strings.HasPrefix(lower, "hapus driver"):
 		return parseRemovePerson(text, "hapus driver", CmdRemoveDriver)
 
+	case strings.HasPrefix(lower, "tambah mobil"):
+		body := strings.TrimSpace(stripPrefixCI(text, "tambah mobil"))
+		parts := splitAndTrim(body, ",")
+		if len(parts) < 2 {
+			return Command{}, fmt.Errorf(
+				"format tidak lengkap, gunakan contoh:\ntambah mobil B 1234 XYZ, Toyota Avanza")
+		}
+		return Command{Type: CmdAddCar, CarPlate: parts[0], CarModel: parts[1]}, nil
+
+	case strings.HasPrefix(lower, "hapus mobil"):
+		car := strings.TrimSpace(stripPrefixCI(text, "hapus mobil"))
+		if car == "" {
+			return Command{}, fmt.Errorf(`sebutkan mobilnya, cth: "hapus mobil B 1234 XYZ"`)
+		}
+		return Command{Type: CmdRemoveCar, CarQuery: car}, nil
+
 	case lower == "daftar staff" || lower == "daftar admin":
 		return Command{Type: CmdListStaff}, nil
+
+	case lower == "daftar mobil":
+		return Command{Type: CmdListCars}, nil
+
+	case lower == "daftar driver":
+		return Command{Type: CmdListDrivers}, nil
 
 	case strings.HasPrefix(lower, "maintenance"):
 		car := strings.TrimSpace(stripPrefixCI(text, "maintenance"))

@@ -1,0 +1,12 @@
+# Never bake secrets into the image.
+.env
+.env.*
+
+.git
+.gitignore
+
+# Not in git either; the build downloads modules instead.
+vendor/
+
+*.md
+rental-bot-plan.md

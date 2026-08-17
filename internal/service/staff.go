@@ -218,6 +218,84 @@ func (s *StaffService) RemoveDriver(rawPhone string) (*models.Driver, error) {
 	return &driver, nil
 }
 
+// NormalizePlate tidies a plate number for storage: uppercase, single
+// spaces, trimmed. "b 1234  xyz" and "B1234XYZ" stay visually different
+// but compare equal via plateKey.
+func NormalizePlate(raw string) string {
+	return strings.Join(strings.Fields(strings.ToUpper(raw)), " ")
+}
+
+// plateKey strips spaces so "B 1234 XYZ" and "B1234XYZ" are recognised
+// as the same car when checking for duplicates.
+func plateKey(plate string) string {
+	return strings.ReplaceAll(strings.ToUpper(plate), " ", "")
+}
+
+// AddCar registers a new car in the fleet.
+func (s *StaffService) AddCar(rawPlate, model string) (*models.Car, error) {
+	plate := NormalizePlate(rawPlate)
+	model = strings.TrimSpace(model)
+	if plate == "" {
+		return nil, fmt.Errorf("plat nomor tidak boleh kosong")
+	}
+	if model == "" {
+		return nil, fmt.Errorf("model mobil tidak boleh kosong")
+	}
+
+	var existing []models.Car
+	if err := s.DB.Find(&existing).Error; err != nil {
+		return nil, err
+	}
+	for _, c := range existing {
+		if plateKey(c.PlateNumber) == plateKey(plate) {
+			return nil, fmt.Errorf("mobil dengan plat %s sudah terdaftar", c.PlateNumber)
+		}
+	}
+
+	car := models.Car{PlateNumber: plate, Model: model, Status: models.CarAvailable}
+	if err := s.DB.Create(&car).Error; err != nil {
+		return nil, err
+	}
+	return &car, nil
+}
+
+// RemoveCar deletes a car, refusing while it still has an active order.
+func (s *StaffService) RemoveCar(carQuery string) (*models.Car, error) {
+	car, err := FindCarByQuery(s.DB, carQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	var active int64
+	if err := s.DB.Model(&models.Order{}).
+		Where("car_id = ? AND status = ?", car.ID, models.OrderActive).
+		Count(&active).Error; err != nil {
+		return nil, err
+	}
+	if active > 0 {
+		return nil, fmt.Errorf("mobil %s masih punya order aktif, batalkan dulu ordernya", car.PlateNumber)
+	}
+
+	if err := s.DB.Delete(car).Error; err != nil {
+		return nil, err
+	}
+	return car, nil
+}
+
+// ListCars returns the whole fleet with current status.
+func (s *StaffService) ListCars() ([]models.Car, error) {
+	var cars []models.Car
+	err := s.DB.Order("plate_number").Find(&cars).Error
+	return cars, err
+}
+
+// ListDrivers returns all drivers with status and last known location.
+func (s *StaffService) ListDrivers() ([]models.Driver, error) {
+	var drivers []models.Driver
+	err := s.DB.Order("name").Find(&drivers).Error
+	return drivers, err
+}
+
 // SetCarStatus marks a car as under maintenance or back in service.
 func (s *StaffService) SetCarStatus(carQuery string, status models.CarStatus) (*models.Car, error) {
 	car, err := FindCarByQuery(s.DB, carQuery)

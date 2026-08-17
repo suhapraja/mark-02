@@ -135,8 +135,20 @@ func (h *WebhookHandler) handleStaff(from string, staff models.Staff, text strin
 	case parser.CmdRemoveDriver:
 		h.handleRemoveDriver(from, cmd)
 
+	case parser.CmdAddCar:
+		h.handleAddCar(from, cmd)
+
+	case parser.CmdRemoveCar:
+		h.handleRemoveCar(from, cmd)
+
 	case parser.CmdListStaff:
 		h.handleListStaff(from)
+
+	case parser.CmdListCars:
+		h.handleListCars(from)
+
+	case parser.CmdListDrivers:
+		h.handleListDrivers(from)
 
 	case parser.CmdSetMaintenance:
 		h.handleSetCarStatus(from, cmd, models.CarMaintenance)
@@ -189,6 +201,62 @@ func (h *WebhookHandler) handleRemoveDriver(from string, cmd parser.Command) {
 		return
 	}
 	h.reply(from, fmt.Sprintf("🗑️ Driver dihapus: %s (%s)", driver.Name, driver.Phone))
+}
+
+func (h *WebhookHandler) handleAddCar(from string, cmd parser.Command) {
+	car, err := h.Staff.AddCar(cmd.CarPlate, cmd.CarModel)
+	if err != nil {
+		h.reply(from, "⚠️ "+err.Error())
+		return
+	}
+	h.reply(from, fmt.Sprintf("✅ Mobil ditambahkan: %s (%s)", car.PlateNumber, car.Model))
+}
+
+func (h *WebhookHandler) handleRemoveCar(from string, cmd parser.Command) {
+	car, err := h.Staff.RemoveCar(cmd.CarQuery)
+	if err != nil {
+		h.reply(from, "⚠️ "+err.Error())
+		return
+	}
+	h.reply(from, fmt.Sprintf("🗑️ Mobil dihapus: %s (%s)", car.PlateNumber, car.Model))
+}
+
+func (h *WebhookHandler) handleListCars(from string) {
+	cars, err := h.Staff.ListCars()
+	if err != nil {
+		h.reply(from, "⚠️ Gagal mengambil daftar mobil: "+err.Error())
+		return
+	}
+
+	msg := "🚗 Daftar mobil:\n"
+	if len(cars) == 0 {
+		msg += "- Belum ada mobil terdaftar\n"
+	}
+	for _, c := range cars {
+		msg += fmt.Sprintf("- %s (%s) — %s\n", c.PlateNumber, c.Model, c.Status)
+	}
+	h.reply(from, msg)
+}
+
+func (h *WebhookHandler) handleListDrivers(from string) {
+	drivers, err := h.Staff.ListDrivers()
+	if err != nil {
+		h.reply(from, "⚠️ Gagal mengambil daftar driver: "+err.Error())
+		return
+	}
+
+	msg := "👤 Daftar driver:\n"
+	if len(drivers) == 0 {
+		msg += "- Belum ada driver terdaftar\n"
+	}
+	for _, d := range drivers {
+		loc := d.LastLocation
+		if loc == "" {
+			loc = "lokasi tidak diketahui"
+		}
+		msg += fmt.Sprintf("- %s (%s) — %s, terakhir di %s\n", d.Name, d.Phone, d.Status, loc)
+	}
+	h.reply(from, msg)
 }
 
 func (h *WebhookHandler) handleListStaff(from string) {
@@ -422,11 +490,16 @@ tambah admin [nama], [nomor]
 tambah driver [nama], [nomor]
   cth: tambah driver Andi, 08123456790
 
+tambah mobil [plat], [model]
+  cth: tambah mobil B 1234 XYZ, Toyota Avanza
+
 hapus admin [nomor]
 hapus driver [nomor]
+hapus mobil [plat]
 
 daftar staff
-  Lihat semua admin & superadmin
+daftar driver
+daftar mobil
 
 maintenance [mobil]
   cth: maintenance Avanza B1234

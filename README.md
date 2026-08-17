@@ -112,16 +112,56 @@ selesai, sekarang di Bandung
 posisi Jakarta
 ```
 
-## Deployment (Railway/Render)
+## Deployment (Railway)
 
-Not deployed yet — next step once the code is reviewed. Both platforms
-support deploying a Go app directly from this GitHub repo with a
-PostgreSQL add-on, and let you set the environment variables from
-`.env.example` in their dashboard.
+Deployed as a Docker image — `Dockerfile` builds a ~53MB Alpine image
+running as a non-root user. `railway.json` points Railway at it and sets
+`/health` as the healthcheck.
 
-You'll also need, outside of this repo:
-- A Meta Business Manager account
-- WhatsApp Business Cloud API access with a dedicated phone number
-  (separate from dad's personal WhatsApp)
-- The webhook URL (once deployed) registered in the Meta App dashboard,
-  using `WHATSAPP_VERIFY_TOKEN` from your `.env` during verification
+### 1. Create the project
+
+1. Railway → **New Project → Deploy from GitHub repo** → pick this repo.
+2. In the same project, **New → Database → PostgreSQL**.
+
+### 2. Set environment variables
+
+On the app service (Variables tab):
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — references the Postgres service |
+| `WHATSAPP_TOKEN` | Permanent System User token |
+| `WHATSAPP_PHONE_NUMBER_ID` | From Meta → API Setup |
+| `WHATSAPP_VERIFY_TOKEN` | Any string; must match what you enter in Meta |
+| `SUPERADMIN_PHONES` | Comma-separated, e.g. `628xxx,628yyy` |
+
+Don't set `PORT` — Railway injects it, and the app reads it.
+
+### 3. Get the public URL
+
+**Settings → Networking → Generate Domain.** That gives you a permanent
+`*.up.railway.app` URL, replacing the temporary tunnel used in local
+testing.
+
+### 4. Point Meta at it
+
+In the Meta App dashboard → **WhatsApp → Configuration → Webhook**:
+
+- Callback URL: `https://<your-app>.up.railway.app/webhook`
+- Verify token: whatever you set as `WHATSAPP_VERIFY_TOKEN`
+- Under **Webhook fields**, subscribe to `messages`
+
+Also make sure your app is subscribed to the *correct* WhatsApp Business
+Account — the one holding your real number, not the test-number WABA.
+Nothing arrives if these differ, while everything still looks configured.
+
+### No seeding required
+
+The database starts empty and fills itself in:
+
+- Superadmins are created from `SUPERADMIN_PHONES` on every startup
+- Cars, drivers and admins are added over WhatsApp (`tambah mobil`,
+  `tambah driver`, `tambah admin`)
+
+`go run ./cmd/seed` and the `seed/*.json` files remain available for bulk
+loading an existing fleet, but aren't needed for a fresh deploy.
